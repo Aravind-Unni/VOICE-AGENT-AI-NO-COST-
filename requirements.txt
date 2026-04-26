@@ -1,0 +1,8 @@
+
+fastapi
+faster-whisper
+langgraph
+langchain
+langchain-community
+edge-tts
+langchain-nvidia-ai-endpoints

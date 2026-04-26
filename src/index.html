@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice AI Agent Support</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .chat-container {
+            width: 100%;
+            max-width: 600px;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        #recordBtn {
+            width: 100%;
+            padding: 15px;
+            background: #d9534f;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+            margin-bottom: 20px;
+        }
+        #recordBtn:active {
+            transform: scale(0.98);
+        }
+        #chatLog {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+            background: #fafafa;
+        }
+        .message-block {
+            margin-bottom: 15px;
+            padding: 12px;
+            background: #e9ecef;
+            border-radius: 8px;
+            line-height: 1.5;
+        }
+        .status {
+            font-size: 14px;
+            color: #666;
+            text-align: center;
+            margin-top: 10px;
+            height: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="chat-container">
+        <h2 style="text-align: center; margin-top: 0;">Zendesk Voice Assistant</h2>
+        
+        <button id="recordBtn">Hold to Speak</button>
+        
+        <div id="chatLog">
+            </div>
+        
+        <div class="status" id="statusText">System Ready. Press and hold to speak.</div>
+    </div>
+
+    <script>
+        const recordBtn = document.getElementById('recordBtn');
+        const chatLog = document.getElementById('chatLog');
+        const statusText = document.getElementById('statusText');
+        
+        // Connect to FastAPI WebSocket
+        const ws = new WebSocket("ws://localhost:8000/ws/voice");
+
+        let mediaRecorder;
+        let audioChunks = [];
+
+        ws.onopen = () => {
+            statusText.innerText = "🟢 Connected to Server";
+        };
+
+        ws.onmessage = async (event) => {
+            // 1. IF THE SERVER SENT TEXT
+            if (typeof event.data === "string") {
+                statusText.innerText = "🔊 Agent is speaking...";
+
+                // Create a new block for the conversation turn
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message-block';
+                messageDiv.innerHTML = event.data;
+                
+                chatLog.appendChild(messageDiv);
+                
+                // Auto-scroll to the bottom
+                chatLog.scrollTop = chatLog.scrollHeight;
+            } 
+            // 2. IF THE SERVER SENT BINARY (AUDIO)
+            else {
+                try {
+                    // Create a URL for the binary audio blob. Use audio/mpeg for Edge TTS.
+                    const audioBlob = new Blob([event.data], { type: 'audio/mpeg' });
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    
+                    const audio = new Audio(audioUrl);
+                    
+                    // Reset status when the audio finishes playing
+                    audio.onended = () => {
+                        statusText.innerText = "🟢 Ready";
+                    };
+
+                    // Catch errors if the browser fails to decode the audio
+                    audio.onerror = (e) => {
+                        console.error("Browser failed to decode/play the audio:", e);
+                        statusText.innerText = "❌ Error playing audio. Check console (F12).";
+                    };
+                    
+                    // Await the play function to catch Autoplay policy blocks
+                    await audio.play().catch(err => {
+                        console.error("Playback blocked by browser:", err);
+                        statusText.innerText = "❌ Audio blocked. Check console (F12).";
+                    });
+
+                } catch (error) {
+                    console.error("Error handling audio data:", error);
+                }
+            }
+        };
+
+        ws.onclose = () => {
+            statusText.innerText = "🔴 Disconnected from Server";
+            recordBtn.disabled = true;
+            recordBtn.style.background = "#ccc";
+        };
+
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+            mediaRecorder = new MediaRecorder(stream);
+
+            mediaRecorder.ondataavailable = event => {
+                if (event.data.size > 0) {
+                    audioChunks.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                ws.send(audioBlob);
+                audioChunks = []; 
+                statusText.innerText = "⏳ Processing and Querying Database...";
+            };
+        }).catch(err => {
+            statusText.innerText = "❌ Microphone access denied.";
+        });
+
+        // Push-to-talk logic
+        recordBtn.onmousedown = () => {
+            if(mediaRecorder && mediaRecorder.state === "inactive") {
+                mediaRecorder.start();
+                recordBtn.style.background = "#5cb85c";
+                recordBtn.innerText = "Listening... (Release to Send)";
+                statusText.innerText = "🎙️ Recording...";
+            }
+        };
+
+        recordBtn.onmouseup = () => {
+            if(mediaRecorder && mediaRecorder.state === "recording") {
+                mediaRecorder.stop();
+                recordBtn.style.background = "#d9534f";
+                recordBtn.innerText = "Hold to Speak";
+            }
+        };
+
+        // For touch devices (phones/tablets)
+        recordBtn.ontouchstart = recordBtn.onmousedown;
+        recordBtn.ontouchend = recordBtn.onmouseup;
+    </script>
+</body>
+</html>
