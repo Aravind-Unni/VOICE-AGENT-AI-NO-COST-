@@ -6,3 +6,10 @@ langchain
 langchain-community
 edge-tts
 langchain-nvidia-ai-endpoints
+twilio 
+pydub
+livekit-agents 
+livekit-plugins-silero 
+livekit-plugins-deepgram 
+livekit-plugins-elevenlabs 
+livekit-plugins-openai

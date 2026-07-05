@@ -92,24 +92,47 @@ class ZendeskRAGPipeline:
             }
         }
         
-        if chat_history:
-            history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history])
-            rewrite_sys = """Given the following customer conversation history and a follow-up query, rephrase the follow-up question to be a standalone search query.
-            Do NOT answer the question, just reformulate it so it contains all the necessary context. If it's already standalone, return it exactly as is."""
-            rewrite_prompt = PromptTemplate.from_template(f"{rewrite_sys}\n\nChat History:\n{{history}}\n\nFollow-Up: {{question}}\nStandalone Search Query:")
-            rewrite_chain = rewrite_prompt | self.llm | StrOutputParser()
-            
-            search_query = rewrite_chain.invoke(
-                {"history": history_str, "question": original_question},
-                config=langfuse_config
-            )
-            print(f"🔄 Rewrote Query for Context: {search_query}")
-        else:
-            search_query = original_question
-            history_str = "No previous history."
-            
+        history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history]) if chat_history else "No previous history."
+        
+        # =========================================================
+        # 🕵️‍♀️ STEP 1: THE DUAL-TASK QUERY OPTIMIZER AGENT
+        # =========================================================
+        optimizer_sys = """You are a Query Optimization Agent for a Zendesk Support Database.
+        Your job is to take a user's raw voice transcription and convert it into a clean, accurate, standalone search query.
+
+        YOU MUST PERFORM TWO CRITICAL TASKS:
+        1. CONTEXTUALIZE (Chat History): If the user's query is a follow-up or uses pronouns (e.g., "what does IT do?", "how do I use THEM?"), look at the Chat History to figure out what they are referring to. Combine the previous context with their current question to make a standalone search query.
+        2. FIX STT ERRORS: Fix common Speech-to-Text typos (e.g., "send desk" -> "Zendesk", "macroes" -> "macros", "tie kit" -> "ticket"). Remove conversational filler words (e.g., "um", "hey can you tell me", "I was wondering").
+
+        RULES:
+        - ONLY output the optimized query string. Do not add any introductory text, quotes, or conversational filler.
+        - If the raw query is already perfect and needs no history context, just output it cleanly.
+
+        Chat History:
+        {history}
+
+        Raw Voice Transcription: {question}
+        Optimized Search Query:"""
+        
+        optimizer_prompt = PromptTemplate.from_template(optimizer_sys)
+        optimizer_chain = optimizer_prompt | self.llm | StrOutputParser()
+        
+        # Generate the optimized query
+        search_query = optimizer_chain.invoke(
+            {"history": history_str, "question": original_question},
+            config=langfuse_config
+        ).strip('"').strip() # Strip accidental quotes
+        
+        print(f"✨ Optimized Search Query: '{search_query}'")
+        
+        # =========================================================
+        # 🔍 STEP 2: RETRIEVAL
+        # =========================================================
         context_str = self.retrieve_and_rerank(search_query)
         
+        # =========================================================
+        # 🤖 STEP 3: GENERATE ANSWER
+        # =========================================================
         print("🤖 Generating Support Response...")
         qa_chain = self.prompt | self.llm | StrOutputParser()
         answer = qa_chain.invoke(
@@ -134,7 +157,7 @@ def initialize_support_rag_pipeline():
         preprocess_and_index(TARGET_PDF_DIR)
         print("🔄 Preprocessing complete. Resuming engine startup...")
 
-    # --- NEW: Initialize NVIDIA Embeddings ---
+    # --- Initialize NVIDIA Embeddings ---
     print(f"🧠 Loading NVIDIA Embeddings ({EMBEDDING_MODEL_NAME})...")
     if not os.getenv("NVIDIA_API_KEY"):
         raise ValueError("❌ NVIDIA_API_KEY not found in your .env file!")
