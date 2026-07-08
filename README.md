@@ -1,4 +1,4 @@
-# 📞 Voice Customer Support Agent with Advanced Hybrid RAG
+# Production Grade Voice AI Agent for Customer Support
 
 An enterprise-grade, ultra-low-latency Voice AI Agent designed to serve as an interactive Zendesk Customer Support Assistant. This system combines real-time WebRTC audio streaming with an advanced, multi-stage Hybrid Retrieval-Augmented Generation (RAG) architecture to deliver fluid, conversational, and highly accurate voice interactions.
 
